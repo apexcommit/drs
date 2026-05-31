@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@biomejs/biome": "^2.4.16",
     "@vitejs/plugin-react": "^5.1.1",
     "fake-indexeddb": "^6.2.5",
     "typescript": "^5.9.3",
