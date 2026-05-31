@@ -1,7 +1,4 @@
-import type {
-  AttributeSummary,
-  EntitySummary,
-} from "@drs/dataverse";
+import type { AttributeSummary, EntitySummary } from "@drs/dataverse";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 

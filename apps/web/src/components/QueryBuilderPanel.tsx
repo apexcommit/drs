@@ -986,9 +986,7 @@ export function QueryBuilderPanel({
                     updateLink(selectedNode.linkId, {
                       orders: (selectedLink?.orders ?? []).map(
                         (order, orderIndex) =>
-                          orderIndex === index
-                            ? { ...order, ...patch }
-                            : order,
+                          orderIndex === index ? { ...order, ...patch } : order,
                       ),
                     });
                     return;
@@ -2807,9 +2805,12 @@ function parseXmlElementRanges(fetchXml: string): XmlElementRange[] {
   const roots: XmlElementRange[] = [];
   const stack: XmlElementRange[] = [];
   const tagPattern = /<\s*(\/?)([A-Za-z][\w:-]*)([^<>]*?)(\/?)\s*>/g;
-  let match: RegExpExecArray | null;
 
-  while ((match = tagPattern.exec(fetchXml))) {
+  for (
+    let match = tagPattern.exec(fetchXml);
+    match;
+    match = tagPattern.exec(fetchXml)
+  ) {
     const [tag, closingSlash, name, rawAttributes = "", selfClosingSlash] =
       match;
     if (!name) continue;
@@ -2866,9 +2867,7 @@ function findDeepestElementAtOffset(
 ): XmlElementRange | undefined {
   for (const element of elements) {
     if (offset < element.start || offset > element.end) continue;
-    return (
-      findDeepestElementAtOffset(element.children, { offset }) ?? element
-    );
+    return findDeepestElementAtOffset(element.children, { offset }) ?? element;
   }
   return undefined;
 }
@@ -2922,10 +2921,7 @@ function findFilterOwnerElement(filter: XmlElementRange) {
   return undefined;
 }
 
-function getNestedFilterPath(
-  filter: XmlElementRange,
-  owner: XmlElementRange,
-) {
+function getNestedFilterPath(filter: XmlElementRange, owner: XmlElementRange) {
   const parts: number[] = [];
   let current: XmlElementRange | undefined = filter;
 
@@ -2950,9 +2946,7 @@ function getXmlElementSiblingPath(element: XmlElementRange, name: string) {
 }
 
 function getElementSiblingIndex(element: XmlElementRange, name: string) {
-  const siblings = element.parent
-    ? element.parent.children
-    : [element];
+  const siblings = element.parent ? element.parent.children : [element];
   return siblings
     .filter((sibling) => sibling.name === name)
     .findIndex((sibling) => sibling === element);

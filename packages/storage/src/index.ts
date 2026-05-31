@@ -144,8 +144,7 @@ const metadataRelationshipsStoreName = "metadataRelationships";
 const schemaCacheStoreName = "schemaCache";
 const completionIndexesStoreName = "completionIndexes";
 const preferencesId = "app";
-const legacyConnectionProfilesStorageKey =
-  "drs.dataverseCredentials.v1";
+const legacyConnectionProfilesStorageKey = "drs.dataverseCredentials.v1";
 
 type StoreName =
   | typeof preferencesStoreName
