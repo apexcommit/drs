@@ -69,7 +69,7 @@ DRS is an early prototype/workbench. The current focus is FetchXML authoring, me
 
 ## Acknowledgements
 
-DRS is heavily inspired by FetchXML Builder and XrmToolBox. Those tools have shaped many Dataverse development workflows, including the workflow this project is exploring in a web-based form.
+DRS is heavily inspired by [FetchXML Builder](https://fetchxmlbuilder.com) and [XrmToolBox](https://www.xrmtoolbox.com). Those tools have shaped many Dataverse development workflows, including the workflow this project is exploring in a web-based form.
 
 ## License
 
