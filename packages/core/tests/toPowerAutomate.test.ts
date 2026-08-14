@@ -60,8 +60,10 @@ describe("core offline workbench functions", () => {
   });
 
   it("generates first-release converter outputs", () => {
-    expect(toODataUrl(accountQuery)).toMatchInlineSnapshot(
-      `"/account?$select=name,accountid&$filter=contains(name,%20'Contoso')%20and%20statecode%20eq%200"`,
+    expect(
+      toODataUrl(accountQuery, { entitySetName: "accounts" }),
+    ).toMatchInlineSnapshot(
+      `"/accounts?$select=name,accountid&$filter=(contains(name,%20'Contoso')%20and%20statecode%20eq%200%20and%20createdon%20ge%202024-01-01)"`,
     );
     expect(toJavaScriptFetchXml(accountQuery)).toContain("const fetchXml");
     expect(toCSharpFetchXml(accountQuery)).toContain("var fetchXml");
@@ -153,6 +155,65 @@ describe("core offline workbench functions", () => {
     expect(xml).toContain('<filter type="or">');
     expect(xml).toContain(
       '<condition attribute="statecode" operator="eq" value="0" />',
+    );
+  });
+
+  it("preserves sibling filters and every value in multi-value conditions", () => {
+    const model = readFetchQueryModel(`<fetch>
+  <entity name="account">
+    <filter type="and">
+      <condition attribute="statecode" operator="in">
+        <value>0</value>
+        <value>1</value>
+      </condition>
+    </filter>
+    <filter type="or">
+      <condition attribute="name" operator="eq" value="Contoso" />
+    </filter>
+  </entity>
+</fetch>`);
+
+    expect(model.filters).toHaveLength(2);
+    expect(model.filters[0]?.conditions[0]?.values).toEqual(["0", "1"]);
+
+    const xml = writeFetchQueryModel(model);
+    expect(xml).toContain('<condition attribute="statecode" operator="in">');
+    expect(xml).toContain("<value>0</value>");
+    expect(xml).toContain("<value>1</value>");
+    expect(xml).toContain('<filter type="or">');
+    expect(xml).toContain(
+      '<condition attribute="name" operator="eq" value="Contoso" />',
+    );
+  });
+
+  it("preserves OR groups when converting to OData", () => {
+    const query = `<fetch><entity name="account"><filter type="or"><condition attribute="name" operator="eq" value="A" /><condition attribute="name" operator="eq" value="B" /></filter></entity></fetch>`;
+
+    expect(toODataUrl(query, { entitySetName: "accounts" })).toBe(
+      "/accounts?$filter=(name%20eq%20'A'%20or%20name%20eq%20'B')",
+    );
+  });
+
+  it("reports unsupported OData operations instead of silently dropping them", () => {
+    const query = `<fetch><entity name="account"><filter><condition attribute="createdon" operator="last-x-days" value="7" /></filter></entity></fetch>`;
+
+    expect(() => toODataUrl(query)).toThrow(
+      'OData conversion does not support operator "last-x-days".',
+    );
+  });
+
+  it("rejects multiple XML root elements", () => {
+    const query = `<fetch><entity name="account" /></fetch><fetch><entity name="contact" /></fetch>`;
+
+    expect(validateFetchXml(query)).toEqual([
+      {
+        severity: "error",
+        message: "XML document must contain exactly one root element.",
+        path: "/",
+      },
+    ]);
+    expect(() => formatFetchXml(query)).toThrow(
+      "XML document must contain exactly one root element.",
     );
   });
 });

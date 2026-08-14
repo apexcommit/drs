@@ -110,7 +110,11 @@ export function OutputPanel({
   );
 }
 
-export function getOutput(fetchXml: string, tab: OutputTab) {
+export function getOutput(
+  fetchXml: string,
+  tab: OutputTab,
+  entitySetName?: string,
+) {
   try {
     if (tab === "powerAutomate") {
       const converted = toPowerAutomateParameters(fetchXml);
@@ -120,8 +124,12 @@ export function getOutput(fetchXml: string, tab: OutputTab) {
         parameters: converted.parameters,
       };
     }
-    if (tab === "odata")
-      return { kind: "text" as const, text: toODataUrl(fetchXml) };
+    if (tab === "odata") {
+      return {
+        kind: "text" as const,
+        text: toODataUrl(fetchXml, entitySetName ? { entitySetName } : {}),
+      };
+    }
     if (tab === "csharp")
       return { kind: "text" as const, text: toCSharpFetchXml(fetchXml) };
     if (tab === "javascript")

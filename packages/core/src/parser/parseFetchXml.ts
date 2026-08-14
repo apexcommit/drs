@@ -35,6 +35,9 @@ export function parseFetchXml(xml: string): FetchXmlDocument {
     }
 
     if (rest.startsWith("<")) {
+      if (stack.length === 0 && root) {
+        throw new Error("XML document must contain exactly one root element.");
+      }
       const parsed = parseOpeningTag(input, index);
       const node: XmlElementNode = {
         type: "element",
@@ -56,7 +59,11 @@ export function parseFetchXml(xml: string): FetchXmlDocument {
     const end = nextTag === -1 ? input.length : nextTag;
     const text = input.slice(index, end);
     if (text.trim()) {
-      stack.at(-1)?.children.push({ type: "text", text: text.trim() });
+      const parent = stack.at(-1);
+      if (!parent) {
+        throw new Error("Text is not allowed outside the XML root element.");
+      }
+      parent.children.push({ type: "text", text: text.trim() });
     }
     index = end;
   }

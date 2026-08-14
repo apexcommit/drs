@@ -42,6 +42,7 @@ interface WorkbenchState {
   connectionProfiles: DataverseConnectionProfile[];
   activeConnectionProfileId: string;
   resultRows: Record<string, unknown>[];
+  resultNextLink: string;
   connectionStatus: ConnectionStatus;
   connectionError: string;
   userName: string;
@@ -76,7 +77,10 @@ interface WorkbenchState {
     message: string,
   ) => void;
   useConnectionProfile: (profileId: string) => void;
-  setResultRows: (resultRows: Record<string, unknown>[]) => void;
+  setResultRows: (
+    resultRows: Record<string, unknown>[],
+    resultNextLink?: string,
+  ) => void;
   setConnectionStatus: (
     connectionStatus: ConnectionStatus,
     connectionError?: string,
@@ -128,6 +132,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   connectionProfiles: [],
   activeConnectionProfileId: defaultPreferences.activeConnectionProfileId,
   resultRows: [],
+  resultNextLink: "",
   connectionStatus: "local",
   connectionError: "",
   userName: "",
@@ -156,7 +161,12 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     void get().savePreferencesPatch({ sidebarCollapsed });
   },
   setConnectionField: (field, value) => {
-    set({ [field]: value });
+    set((state) => ({
+      [field]: value,
+      ...(field === "orgUrl" && value !== state.orgUrl
+        ? emptyOrganizationState
+        : {}),
+    }));
     void get().savePreferencesPatch({ [field]: value });
   },
   hydrateStoredState: async () => {
@@ -267,6 +277,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         orgUrl: savedProfile.orgUrl,
         clientId: savedProfile.clientId,
         tenantId: savedProfile.tenantId,
+        ...(savedProfile.orgUrl !== state.orgUrl ? emptyOrganizationState : {}),
       };
     }),
   deleteConnectionProfile: (profileId) =>
@@ -327,9 +338,11 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         orgUrl: profile.orgUrl,
         clientId: profile.clientId,
         tenantId: profile.tenantId,
+        ...(profile.orgUrl !== state.orgUrl ? emptyOrganizationState : {}),
       };
     }),
-  setResultRows: (resultRows) => set({ resultRows }),
+  setResultRows: (resultRows, resultNextLink = "") =>
+    set({ resultRows, resultNextLink }),
   setConnectionStatus: (connectionStatus, connectionError = "") =>
     set({ connectionStatus, connectionError }),
   setConnectedUser: (userName) => set({ userName }),
@@ -393,16 +406,39 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       connectionStatus: "local",
       connectionError: "",
       userName: "",
-      metadataEntities: [],
-      metadataAttributesByEntity: {},
-      metadataRelationshipsByEntity: {},
-      metadataUpdatedAt: "",
-      selectedEntityMetadataUpdatedAt: "",
-      loadingAttributeEntity: "",
-      loadingRelationshipEntity: "",
+      ...emptyMetadataState,
       resultRows: [],
+      resultNextLink: "",
     }),
 }));
+
+const emptyMetadataState = {
+  metadataEntities: [],
+  metadataAttributesByEntity: {},
+  metadataRelationshipsByEntity: {},
+  metadataUpdatedAt: "",
+  selectedEntityMetadataUpdatedAt: "",
+  loadingAttributeEntity: "",
+  loadingRelationshipEntity: "",
+} satisfies Pick<
+  WorkbenchState,
+  | "metadataEntities"
+  | "metadataAttributesByEntity"
+  | "metadataRelationshipsByEntity"
+  | "metadataUpdatedAt"
+  | "selectedEntityMetadataUpdatedAt"
+  | "loadingAttributeEntity"
+  | "loadingRelationshipEntity"
+>;
+
+const emptyOrganizationState = {
+  ...emptyMetadataState,
+  resultRows: [],
+  resultNextLink: "",
+} satisfies Pick<
+  WorkbenchState,
+  keyof typeof emptyMetadataState | "resultRows" | "resultNextLink"
+>;
 
 async function ignoreStorageErrors(operation: Promise<unknown>) {
   try {

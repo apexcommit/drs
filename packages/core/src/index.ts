@@ -2,6 +2,7 @@ export type {
   ConvertedOutput,
   FetchXmlDocument,
   ParameterManifestItem,
+  ODataConversionOptions,
   PowerAutomateConversionOptions,
   PowerAutomateConversionResult,
   ValidationIssue,

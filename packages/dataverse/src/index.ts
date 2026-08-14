@@ -46,6 +46,7 @@ export interface DataverseClient {
     entitySetName: string,
     fetchXml: string,
   ): Promise<FetchXmlExecutionResult>;
+  executeNextPage(nextLink: string): Promise<FetchXmlExecutionResult>;
 }
 
 export interface DataverseSession {
@@ -71,7 +72,13 @@ export function createDataverseClient(
 
   async function request<T>(path: string) {
     const token = await getAccessToken();
-    const response = await fetch(`${organizationUrl}/api/data/v9.2/${path}`, {
+    const requestUrl = new URL(path, `${organizationUrl}/api/data/v9.2/`);
+    if (requestUrl.origin !== new URL(organizationUrl).origin) {
+      throw new Error(
+        "Dataverse continuation URL belongs to a different origin.",
+      );
+    }
+    const response = await fetch(requestUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
@@ -138,17 +145,33 @@ export function createDataverseClient(
     },
     async executeFetchXml(entitySetName, fetchXml) {
       const encoded = encodeURIComponent(fetchXml);
-      const result = await request<{
-        value: Record<string, unknown>[];
-        "@odata.nextLink"?: string;
-      }>(`${entitySetName}?fetchXml=${encoded}`);
-      return {
-        rows: result.value,
-        ...(result["@odata.nextLink"]
-          ? { nextLink: result["@odata.nextLink"] }
-          : {}),
-      };
+      return readExecutionResult(
+        await request<DataverseExecutionResponse>(
+          `${entitySetName}?fetchXml=${encoded}`,
+        ),
+      );
     },
+    async executeNextPage(nextLink) {
+      return readExecutionResult(
+        await request<DataverseExecutionResponse>(nextLink),
+      );
+    },
+  };
+}
+
+interface DataverseExecutionResponse {
+  value: Record<string, unknown>[];
+  "@odata.nextLink"?: string;
+}
+
+function readExecutionResult(
+  result: DataverseExecutionResponse,
+): FetchXmlExecutionResult {
+  return {
+    rows: result.value,
+    ...(result["@odata.nextLink"]
+      ? { nextLink: result["@odata.nextLink"] }
+      : {}),
   };
 }
 

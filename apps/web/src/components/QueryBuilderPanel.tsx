@@ -309,6 +309,13 @@ export function QueryBuilderPanel({
     visibleInvalidRelationshipLinkIds.size,
   ]);
 
+  useEffect(
+    () => () => {
+      onWarningsChange?.(0);
+    },
+    [onWarningsChange],
+  );
+
   useEffect(() => {
     if (!isFetchCopied) return;
     const timeout = window.setTimeout(() => setIsFetchCopied(false), 1600);
@@ -1894,15 +1901,31 @@ function FilterInspector({
           const attribute = attributes.find(
             (item) => item.logicalName === condition.attribute,
           );
-          const operators = attribute
+          const attributeOptions = attribute
+            ? attributes
+            : [
+                {
+                  logicalName: condition.attribute,
+                  displayName: condition.attribute,
+                  type: "Unknown",
+                },
+                ...attributes,
+              ];
+          const supportedOperators = attribute
             ? (operatorsByType[attribute.type] ?? defaultOperators)
             : defaultOperators;
+          const operators = supportedOperators.includes(condition.operator)
+            ? supportedOperators
+            : [condition.operator, ...supportedOperators];
           const operatorNeedsValue = ![
             "null",
             "not-null",
             "today",
             "yesterday",
           ].includes(condition.operator);
+          const operatorAcceptsMultipleValues = isMultiValueOperator(
+            condition.operator,
+          );
           return (
             <div className="filter-card" key={condition.id}>
               <label>
@@ -1918,13 +1941,19 @@ function FilterInspector({
                       : "eq";
                     onUpdate(
                       condition.id,
-                      { attribute: event.target.value, operator: nextOperator },
+                      {
+                        attribute: event.target.value,
+                        operator: nextOperator,
+                        ...(isMultiValueOperator(nextOperator)
+                          ? {}
+                          : { values: [] }),
+                      },
                       linkId,
                       filterId,
                     );
                   }}
                 >
-                  {attributes.map((item) => (
+                  {attributeOptions.map((item) => (
                     <option key={item.logicalName} value={item.logicalName}>
                       {item.displayName || item.logicalName}
                     </option>
@@ -1935,14 +1964,26 @@ function FilterInspector({
                 <span>Operation</span>
                 <select
                   value={condition.operator}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const operator = event.target.value;
                     onUpdate(
                       condition.id,
-                      { operator: event.target.value },
+                      {
+                        operator,
+                        ...(isMultiValueOperator(operator)
+                          ? {
+                              values: condition.values?.length
+                                ? condition.values
+                                : condition.value
+                                  ? [condition.value]
+                                  : [],
+                            }
+                          : { values: [] }),
+                      },
                       linkId,
                       filterId,
-                    )
-                  }
+                    );
+                  }}
                 >
                   {operators.map((operator) => (
                     <option key={operator} value={operator}>
@@ -1953,17 +1994,39 @@ function FilterInspector({
               </label>
               {operatorNeedsValue ? (
                 <label>
-                  <span>Value</span>
+                  <span>
+                    {operatorAcceptsMultipleValues
+                      ? "Values (comma separated)"
+                      : "Value"}
+                  </span>
                   <input
-                    value={condition.value}
-                    onChange={(event) =>
+                    value={
+                      operatorAcceptsMultipleValues
+                        ? (condition.values ?? [condition.value])
+                            .filter(Boolean)
+                            .join(", ")
+                        : condition.value
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const values = operatorAcceptsMultipleValues
+                        ? value
+                            .split(",")
+                            .map((item) => item.trim())
+                            .filter(Boolean)
+                        : [];
                       onUpdate(
                         condition.id,
-                        { value: event.target.value },
+                        {
+                          value: operatorAcceptsMultipleValues
+                            ? (values[0] ?? "")
+                            : value,
+                          values,
+                        },
                         linkId,
                         filterId,
-                      )
-                    }
+                      );
+                    }}
                   />
                 </label>
               ) : null}
@@ -2435,6 +2498,10 @@ function makeCondition(attribute: string): FetchConditionSelection {
     operator: "eq",
     value: "",
   };
+}
+
+function isMultiValueOperator(operator: string) {
+  return ["in", "not-in", "between", "not-between"].includes(operator);
 }
 
 function makeFilterGroup(id: string): FetchFilterGroup {

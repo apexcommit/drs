@@ -35,10 +35,8 @@ export function validateFetchXml(xml: string): ValidationIssue[] {
     });
   }
 
-  let entityCount = 0;
   walkElements(document.root, (node, path) => {
     if (node.name === "entity") {
-      entityCount++;
       if (!node.attributes.name) {
         issues.push({
           severity: "error",
@@ -89,10 +87,19 @@ export function validateFetchXml(xml: string): ValidationIssue[] {
     }
   });
 
-  if (entityCount === 0) {
+  const rootEntities = document.root.children.filter(
+    (child) => child.type === "element" && child.name === "entity",
+  );
+  if (rootEntities.length === 0) {
     issues.push({
       severity: "error",
       message: "FetchXML must include at least one entity.",
+      path: "/fetch",
+    });
+  } else if (rootEntities.length > 1) {
+    issues.push({
+      severity: "error",
+      message: "FetchXML must include exactly one root entity.",
       path: "/fetch",
     });
   }

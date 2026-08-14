@@ -641,6 +641,12 @@ select {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.composition-panel > *,
+.inspector-panel > *,
+.fetch-preview-panel > * {
+  min-width: 0;
+}
+
 .fetch-preview-panel .monaco-editor {
   outline: 0;
 }

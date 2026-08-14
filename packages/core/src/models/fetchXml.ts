@@ -63,6 +63,11 @@ export interface FetchConditionSelection {
   attribute: string;
   operator: string;
   value: string;
+  values?: string[];
+}
+
+export interface ODataConversionOptions {
+  entitySetName?: string;
 }
 
 export interface FetchOrderSelection {

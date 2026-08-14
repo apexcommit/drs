@@ -1,6 +1,7 @@
 import {
   type FetchQueryModel,
   readFetchQueryModel,
+  validateFetchXml,
   writeFetchQueryModel,
 } from "@drs/core";
 import {
@@ -84,6 +85,7 @@ export function App() {
     connectionProfiles,
     activeConnectionProfileId,
     resultRows,
+    resultNextLink,
     connectionStatus,
     connectionError,
     userName,
@@ -137,8 +139,9 @@ export function App() {
     async (
       entityName: string,
       client = dataverseSessionRef.current?.client,
+      forceRefresh = false,
     ) => {
-      if (metadataAttributesByEntity[entityName]) {
+      if (!forceRefresh && metadataAttributesByEntity[entityName]) {
         return metadataAttributesByEntity[entityName];
       }
       if (!client) return [];
@@ -171,11 +174,12 @@ export function App() {
     async (
       entityName: string,
       client = dataverseSessionRef.current?.client,
+      forceRefresh = false,
     ) => {
-      if (metadataRelationshipsByEntity[entityName]) {
+      if (!forceRefresh && metadataRelationshipsByEntity[entityName]) {
         return metadataRelationshipsByEntity[entityName];
       }
-      if (orgUrl) await loadCachedMetadata(orgUrl, entityName);
+      if (!forceRefresh && orgUrl) await loadCachedMetadata(orgUrl, entityName);
       if (!client) return [];
       setLoadingRelationshipEntity(entityName);
       try {
@@ -233,8 +237,8 @@ export function App() {
             left.logicalName.localeCompare(right.logicalName),
           ),
       );
-      await loadEntityAttributes(selectedEntity, session.client);
-      await loadEntityRelationships(selectedEntity, session.client);
+      await loadEntityAttributes(selectedEntity, session.client, true);
+      await loadEntityRelationships(selectedEntity, session.client, true);
       setConnectionStatus("connected");
       setActivePane("metadata");
     } catch (error) {
@@ -305,8 +309,19 @@ export function App() {
   }
 
   async function executeQuery() {
-    const model = safeReadModel(fetchXml);
     setQueryError("");
+    const validationErrors = validateFetchXml(fetchXml).filter(
+      (issue) => issue.severity === "error",
+    );
+    if (validationErrors.length) {
+      setQueryError(
+        `FetchXML validation failed: ${validationErrors
+          .map((issue) => issue.message)
+          .join(" ")}`,
+      );
+      return;
+    }
+    const model = readFetchQueryModel(fetchXml);
     if (builderWarningCount > 0) {
       setQueryError("Resolve builder warnings before executing FetchXML.");
       return;
@@ -337,9 +352,26 @@ export function App() {
         entitySetName,
         fetchXml,
       );
-      setResultRows(result.rows);
+      setResultRows(result.rows, result.nextLink ?? "");
       setConnectionStatus("connected");
       setActivePane("results");
+    } catch (error) {
+      setQueryError(getErrorMessage(error));
+      setConnectionStatus("connected");
+    } finally {
+      setIsExecutingQuery(false);
+    }
+  }
+
+  async function loadNextResultPage() {
+    const client = dataverseSessionRef.current?.client;
+    if (!client || !resultNextLink || isExecutingQuery) return;
+    setIsExecutingQuery(true);
+    setQueryError("");
+    try {
+      const result = await client.executeNextPage(resultNextLink);
+      setResultRows([...resultRows, ...result.rows], result.nextLink ?? "");
+      setConnectionStatus("connected");
     } catch (error) {
       setQueryError(getErrorMessage(error));
       setConnectionStatus("connected");
@@ -368,8 +400,8 @@ export function App() {
             left.logicalName.localeCompare(right.logicalName),
           ),
       );
-      await loadEntityAttributes(selectedEntity, client);
-      await loadEntityRelationships(selectedEntity, client);
+      await loadEntityAttributes(selectedEntity, client, true);
+      await loadEntityRelationships(selectedEntity, client, true);
       setConnectionStatus("connected");
     } catch (error) {
       setConnectionStatus("error", getErrorMessage(error));
@@ -408,7 +440,14 @@ export function App() {
           <button
             type="button"
             title="Format"
-            onClick={() => setFetchXml(getFormattedXml(fetchXml))}
+            onClick={() => {
+              try {
+                setFetchXml(getFormattedXml(fetchXml));
+                setQueryError("");
+              } catch (error) {
+                setQueryError(getErrorMessage(error));
+              }
+            }}
           >
             <Sparkles size={17} />
             <span>Format</span>
@@ -579,9 +618,11 @@ export function App() {
                 {activePane === "results" ? (
                   <ResultGrid
                     canExecute={hasLiveSession && builderWarningCount === 0}
+                    hasMore={Boolean(resultNextLink)}
                     isExecuting={isExecutingQuery}
                     rows={resultRows}
                     onExecute={executeQuery}
+                    onLoadMore={loadNextResultPage}
                   />
                 ) : null}
               </div>
@@ -613,6 +654,11 @@ export function App() {
       />
       {transformDialogTab ? (
         <TransformDialog
+          entitySetName={
+            metadataEntities.find(
+              (entity) => entity.logicalName === selectedEntity,
+            )?.entitySetName
+          }
           fetchXml={fetchXml}
           selectedTab={transformDialogTab}
           onClose={() => setTransformDialogTab(null)}
@@ -627,18 +673,20 @@ export function App() {
 }
 
 function TransformDialog({
+  entitySetName,
   fetchXml,
   selectedTab,
   onClose,
   onSelect,
 }: {
+  entitySetName: string | undefined;
   fetchXml: string;
   selectedTab: OutputTab;
   onClose: () => void;
   onSelect: (tab: OutputTab) => void;
 }) {
   const selected = outputTabs.find((tab) => tab.id === selectedTab);
-  const output = getOutput(fetchXml, selectedTab);
+  const output = getOutput(fetchXml, selectedTab, entitySetName);
   const copyText =
     output.kind === "issues"
       ? output.issues

@@ -2,18 +2,22 @@ import { Copy, Download } from "lucide-react";
 
 interface ResultGridProps {
   canExecute: boolean;
+  hasMore: boolean;
   isExecuting: boolean;
   rows: Record<string, unknown>[];
   onExecute: () => void;
+  onLoadMore: () => void;
 }
 
 export function ResultGrid({
   canExecute,
+  hasMore,
   isExecuting,
   rows,
   onExecute,
+  onLoadMore,
 }: ResultGridProps) {
-  const columns = Object.keys(rows[0] ?? {});
+  const columns = getResultColumns(rows);
 
   return (
     <section className="panel side-panel results-panel" aria-label="Results">
@@ -28,6 +32,11 @@ export function ResultGrid({
           >
             {isExecuting ? "Running" : "Run"}
           </button>
+          {hasMore ? (
+            <button type="button" disabled={isExecuting} onClick={onLoadMore}>
+              {isExecuting ? "Loading" : "Load more"}
+            </button>
+          ) : null}
           <button
             className="icon-button"
             type="button"
@@ -77,9 +86,13 @@ export function ResultGrid({
   );
 }
 
-function toCsv(rows: Record<string, unknown>[]) {
+export function getResultColumns(rows: Record<string, unknown>[]) {
+  return Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+}
+
+export function toCsv(rows: Record<string, unknown>[]) {
   if (rows.length === 0) return "";
-  const columns = Object.keys(rows[0] ?? {});
+  const columns = getResultColumns(rows);
   return [
     columns.join(","),
     ...rows.map((row) =>

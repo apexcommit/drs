@@ -43,7 +43,8 @@ export function readFetchQueryModel(xml: string): FetchQueryModel {
       descending: node.attributes.descending === "true",
     }));
 
-  const filter = directChildren(entity, "filter").at(0);
+  const entityFilters = directChildren(entity, "filter");
+  const filter = entityFilters.length === 1 ? entityFilters[0] : undefined;
   const conditions = filter
     ? directChildren(filter, "condition")
         .filter((condition) => condition.attributes.attribute)
@@ -53,7 +54,9 @@ export function readFetchQueryModel(xml: string): FetchQueryModel {
     ? directChildren(filter, "filter").map((childFilter, index) =>
         filterFromNode(childFilter, `${index + 1}`),
       )
-    : [];
+    : entityFilters.map((entityFilter, index) =>
+        filterFromNode(entityFilter, `${index + 1}`),
+      );
 
   const links = directChildren(entity, "link-entity").map((node, index) =>
     linkFromNode(node, `${index + 1}`),
@@ -140,11 +143,13 @@ function conditionFromNode(
   node: XmlElementNode,
   index: number,
 ): FetchConditionSelection {
+  const values = readValues(node);
   return {
     id: `condition-${index + 1}`,
     attribute: node.attributes.attribute ?? "",
     operator: node.attributes.operator ?? "eq",
-    value: node.attributes.value ?? readFirstValue(node),
+    value: node.attributes.value ?? values[0] ?? "",
+    ...(values.length ? { values } : {}),
   };
 }
 
@@ -170,6 +175,8 @@ function linkFromNode(
   node: XmlElementNode,
   path: string,
 ): FetchLinkEntitySelection {
+  const linkFilters = directChildren(node, "filter");
+  const filter = linkFilters.length === 1 ? linkFilters[0] : undefined;
   return {
     id: `link-${path}`,
     name: node.attributes.name ?? "",
@@ -186,34 +193,24 @@ function linkFromNode(
         attribute: order.attributes.attribute ?? "",
         descending: order.attributes.descending === "true",
       })),
-    filterType:
-      directChildren(node, "filter").at(0)?.attributes.type === "or"
-        ? "or"
-        : "and",
-    conditions: directChildren(node, "filter")
-      .slice(0, 1)
-      .flatMap((filter, filterIndex) =>
-        directChildren(filter, "condition")
+    filterType: filter?.attributes.type === "or" ? "or" : "and",
+    conditions: filter
+      ? directChildren(filter, "condition")
           .filter((condition) => condition.attributes.attribute)
           .map((condition, conditionIndex) =>
             conditionFromNode(
               condition,
-              Number(
-                `${path.replace(/\D/g, "")}${filterIndex}${conditionIndex}`,
-              ),
+              Number(`${path.replace(/\D/g, "")}${conditionIndex}`),
             ),
-          ),
-      ),
-    filters:
-      directChildren(node, "filter")
-        .at(0)
-        ?.children.filter(
-          (child): child is XmlElementNode =>
-            child.type === "element" && child.name === "filter",
+          )
+      : [],
+    filters: filter
+      ? directChildren(filter, "filter").map((childFilter, index) =>
+          filterFromNode(childFilter, `${path}-${index + 1}`),
         )
-        .map((filter, index) =>
-          filterFromNode(filter, `${path}-${index + 1}`),
-        ) ?? [],
+      : linkFilters.map((linkFilter, index) =>
+          filterFromNode(linkFilter, `${path}-${index + 1}`),
+        ),
     links: directChildren(node, "link-entity").map((child, index) =>
       linkFromNode(child, `${path}-${index + 1}`),
     ),
@@ -276,12 +273,29 @@ function writeFilterGroup(
   lines.push(`${indent}<filter type="${filter.type ?? "and"}">`);
   for (const condition of filter.conditions ?? []) {
     if (!condition.attribute || !condition.operator) continue;
-    const value = condition.value
-      ? ` value="${escapeXml(condition.value)}"`
-      : "";
-    lines.push(
-      `${childIndent}<condition attribute="${escapeXml(condition.attribute)}" operator="${escapeXml(condition.operator)}"${value} />`,
-    );
+    const values = condition.values?.length
+      ? condition.values
+      : condition.value
+        ? [condition.value]
+        : [];
+    const writesNestedValues =
+      multiValueOperators.has(condition.operator) || values.length > 1;
+    if (writesNestedValues && values.length) {
+      lines.push(
+        `${childIndent}<condition attribute="${escapeXml(condition.attribute)}" operator="${escapeXml(condition.operator)}">`,
+      );
+      for (const value of values) {
+        lines.push(`${childIndent}  <value>${escapeXml(value)}</value>`);
+      }
+      lines.push(`${childIndent}</condition>`);
+    } else {
+      const value = condition.value
+        ? ` value="${escapeXml(condition.value)}"`
+        : "";
+      lines.push(
+        `${childIndent}<condition attribute="${escapeXml(condition.attribute)}" operator="${escapeXml(condition.operator)}"${value} />`,
+      );
+    }
   }
   for (const childFilter of filter.filters ?? []) {
     writeFilterGroup(lines, childFilter, indentSize + 2);
@@ -289,8 +303,11 @@ function writeFilterGroup(
   lines.push(`${indent}</filter>`);
 }
 
-function readFirstValue(node: XmlElementNode) {
-  const value = directChildren(node, "value").at(0);
-  const text = value?.children.find((child) => child.type === "text");
-  return text?.type === "text" ? text.text : "";
+const multiValueOperators = new Set(["in", "not-in", "between", "not-between"]);
+
+function readValues(node: XmlElementNode) {
+  return directChildren(node, "value").flatMap((value) => {
+    const text = value.children.find((child) => child.type === "text");
+    return text?.type === "text" ? [text.text] : [];
+  });
 }
