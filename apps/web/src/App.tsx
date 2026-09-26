@@ -13,22 +13,27 @@ import {
 import type { DataverseConnectionProfile } from "@drs/storage";
 import {
   AlertCircle,
+  ArrowRight,
   Blocks,
   CheckCircle2,
-  ChevronsLeft,
-  ChevronsRight,
+  ChevronDown,
+  Code2,
   Copy,
   Database,
   Download,
+  FileCode2,
   FileJson2,
   FileUp,
   KeyRound,
+  LoaderCircle,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   PlugZap,
-  RefreshCw,
   RotateCcw,
   Sparkles,
+  Table2,
   Wand2,
   X,
 } from "lucide-react";
@@ -66,10 +71,10 @@ const sidebarItems: Array<
       icon: typeof Sparkles;
     }
 > = [
-  { type: "pane", id: "builder", label: "Builder", icon: Blocks },
-  { type: "pane", id: "editor", label: "Editor", icon: Sparkles },
+  { type: "pane", id: "builder", label: "Query builder", icon: Blocks },
+  { type: "pane", id: "editor", label: "XML editor", icon: Code2 },
   { type: "pane", id: "metadata", label: "Metadata", icon: Database },
-  { type: "pane", id: "results", label: "Results", icon: Play },
+  { type: "pane", id: "results", label: "Results", icon: Table2 },
   { type: "module", id: "credentials", label: "Connections", icon: KeyRound },
 ];
 
@@ -118,11 +123,12 @@ export function App() {
   } = useWorkbenchStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dataverseSessionRef = useRef<DataverseSession | null>(null);
+  const previousOrgUrlRef = useRef(orgUrl);
   const [testingCredentialId, setTestingCredentialId] = useState("");
   const [hasLiveSession, setHasLiveSession] = useState(false);
   const [isExecutingQuery, setIsExecutingQuery] = useState(false);
   const [queryError, setQueryError] = useState("");
-  const [isTransformMenuOpen, setIsTransformMenuOpen] = useState(false);
+  const [hasExecutedQuery, setHasExecutedQuery] = useState(false);
   const [transformDialogTab, setTransformDialogTab] =
     useState<OutputTab | null>(null);
   const [builderWarningCount, setBuilderWarningCount] = useState(0);
@@ -134,6 +140,20 @@ export function App() {
   useEffect(() => {
     void hydrateStoredState();
   }, [hydrateStoredState]);
+
+  useEffect(() => {
+    if (connectionStatus === "local") setHasExecutedQuery(false);
+  }, [connectionStatus]);
+
+  useEffect(() => {
+    if (previousOrgUrlRef.current === orgUrl) return;
+    previousOrgUrlRef.current = orgUrl;
+    dataverseSessionRef.current = null;
+    setHasLiveSession(false);
+    setHasExecutedQuery(false);
+    setQueryError("");
+    clearLiveConnection();
+  }, [orgUrl, clearLiveConnection]);
 
   const loadEntityAttributes = useCallback(
     async (
@@ -353,6 +373,7 @@ export function App() {
         fetchXml,
       );
       setResultRows(result.rows, result.nextLink ?? "");
+      setHasExecutedQuery(true);
       setConnectionStatus("connected");
       setActivePane("results");
     } catch (error) {
@@ -380,7 +401,7 @@ export function App() {
     }
   }
 
-  async function reloadMetadata() {
+  async function reloadMetadata(entityName: string) {
     const client = dataverseSessionRef.current?.client;
     if (!client) {
       setConnectionStatus(
@@ -400,13 +421,21 @@ export function App() {
             left.logicalName.localeCompare(right.logicalName),
           ),
       );
-      await loadEntityAttributes(selectedEntity, client, true);
-      await loadEntityRelationships(selectedEntity, client, true);
+      await loadEntityAttributes(entityName, client, true);
+      await loadEntityRelationships(entityName, client, true);
       setConnectionStatus("connected");
     } catch (error) {
       setConnectionStatus("error", getErrorMessage(error));
     }
   }
+
+  const validationIssues = validateFetchXml(fetchXml);
+  const validationErrorCount = validationIssues.filter(
+    (issue) => issue.severity === "error",
+  ).length;
+  const currentPane = sidebarItems.find(
+    (item) => item.type === "pane" && item.id === activePane,
+  );
 
   return (
     <main className="app-shell">
@@ -415,134 +444,49 @@ export function App() {
           <img src="/drs-logo.svg" alt="" />
           <div>
             <h1>DRS</h1>
-            <span>Web Workbench</span>
+            <span>DATAVERSE TOOLS</span>
           </div>
         </div>
-        <div className="topbar-actions">
-          <input
-            accept=".xml,.fetch,.txt"
-            hidden
-            ref={fileInputRef}
-            type="file"
-            onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (file) setFetchXml(await file.text());
-              event.target.value = "";
-            }}
+        <div className="topbar-context">
+          <span>Workspace</span>
+          <span>/</span>
+          <strong>
+            {activeModule === "credentials" ? "Connections" : "Query workbench"}
+          </strong>
+        </div>
+        <button
+          className="environment-button"
+          type="button"
+          onClick={() => setActiveModule("credentials")}
+        >
+          <span
+            className={`connection-dot ${hasLiveSession ? "connected" : ""}`}
           />
-          <button
-            type="button"
-            title="Import XML"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <FileUp size={17} />
-          </button>
-          <button
-            type="button"
-            title="Format"
-            onClick={() => {
-              try {
-                setFetchXml(getFormattedXml(fetchXml));
-                setQueryError("");
-              } catch (error) {
-                setQueryError(getErrorMessage(error));
-              }
-            }}
-          >
-            <Sparkles size={17} />
-            <span>Format</span>
-          </button>
-          <div className="topbar-menu">
-            <button
-              type="button"
-              title="Transform"
-              onClick={() => setIsTransformMenuOpen(!isTransformMenuOpen)}
-            >
-              <Wand2 size={17} />
-              <span>Transform</span>
-            </button>
-            {isTransformMenuOpen ? (
-              <div className="transform-menu" role="menu">
-                {outputTabs.map((tab) => {
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setOutputTab(tab.id);
-                        setTransformDialogTab(tab.id);
-                        setIsTransformMenuOpen(false);
-                      }}
-                    >
-                      <Icon size={16} />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            title="Reload metadata"
-            disabled={!hasLiveSession || connectionStatus === "loadingMetadata"}
-            onClick={() => void reloadMetadata()}
-          >
-            <RefreshCw size={17} />
-            <span>Reload</span>
-          </button>
-          <button
-            type="button"
-            title="Reset"
-            onClick={() => {
-              setFetchXml(sampleFetchXml);
-              setResultRows([]);
-            }}
-          >
-            <RotateCcw size={17} />
-          </button>
-          <button
-            type="button"
-            title="Export XML"
-            onClick={() => download("query.fetch.xml", fetchXml)}
-          >
-            <Download size={17} />
-          </button>
-          <button
-            type="button"
-            className="primary-action"
-            title={
-              builderWarningCount
-                ? "Resolve builder warnings before executing"
-                : "Execute"
-            }
-            disabled={
-              !hasLiveSession || isExecutingQuery || builderWarningCount > 0
-            }
-            onClick={executeQuery}
-          >
-            <Play size={17} />
-            <span>{isExecutingQuery ? "Running" : "Execute"}</span>
-          </button>
-        </div>
+          <span>
+            {activeConnectionProfile?.name || "No environment selected"}
+          </span>
+          <ChevronDown size={14} />
+        </button>
       </header>
 
       <div
         className={sidebarCollapsed ? "app-body sidebar-collapsed" : "app-body"}
       >
         <aside className="app-sidebar" aria-label="Application modules">
+          <div className="sidebar-label">WORKSPACE</div>
           <button
             className="sidebar-toggle"
             type="button"
             title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={
+              sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+            }
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           >
             {sidebarCollapsed ? (
-              <ChevronsRight size={18} />
+              <PanelLeftOpen size={16} />
             ) : (
-              <ChevronsLeft size={18} />
+              <PanelLeftClose size={16} />
             )}
             <span>Collapse</span>
           </button>
@@ -558,6 +502,8 @@ export function App() {
                   className={isActive ? "active" : ""}
                   key={`${item.type}-${item.id}`}
                   title={item.label}
+                  aria-label={item.label}
+                  aria-current={isActive ? "page" : undefined}
                   type="button"
                   onClick={() => {
                     if (item.type === "module") {
@@ -570,21 +516,209 @@ export function App() {
                 >
                   <Icon size={18} />
                   <span>{item.label}</span>
+                  {item.id === "results" && resultRows.length > 0 ? (
+                    <small className="nav-count">{resultRows.length}</small>
+                  ) : null}
                 </button>
               );
             })}
           </nav>
+          <div className="sidebar-note">
+            <div className="sidebar-note-icon">
+              <Database size={19} />
+            </div>
+            <strong>Your data. Your workspace.</strong>
+            <p>
+              Build locally. Connect when you’re ready to explore your
+              Dataverse.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveModule("credentials")}
+            >
+              Manage connections <ArrowRight size={14} />
+            </button>
+          </div>
+          <div className="sidebar-footer">
+            <span>DRS</span>
+            <span>v0.1</span>
+          </div>
         </aside>
 
         {activeModule === "workbench" ? (
           <div className="module-body">
+            <div className="workspace-heading">
+              <div>
+                <div className="eyebrow">DATAVERSE RETRIEVAL SYSTEM</div>
+                <h2>{currentPane?.label}</h2>
+                <p>
+                  {activePane === "builder"
+                    ? "Shape your query. See every detail."
+                    : activePane === "editor"
+                      ? "Write and refine your FetchXML with confidence."
+                      : activePane === "metadata"
+                        ? "Explore entities and attributes in your environment."
+                        : "Explore, filter, and export your query results."}
+                </p>
+              </div>
+              <button
+                className={`query-health ${validationErrorCount || builderWarningCount ? "has-issues" : ""}`}
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.focus();
+                  setTransformDialogTab("validation");
+                }}
+              >
+                {validationErrorCount || builderWarningCount ? (
+                  <AlertCircle size={15} />
+                ) : (
+                  <CheckCircle2 size={15} />
+                )}
+                {validationErrorCount
+                  ? `${validationErrorCount} XML errors`
+                  : builderWarningCount
+                    ? `${builderWarningCount} builder warnings`
+                    : "Valid FetchXML"}
+              </button>
+            </div>
+            <div className="query-toolbar">
+              <div className="query-file">
+                <FileCode2 size={17} />
+                <span>{selectedEntity}.fetch.xml</span>
+              </div>
+              <div className="query-actions">
+                <input
+                  accept=".xml,.fetch,.txt"
+                  hidden
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    if (file) setFetchXml(await file.text());
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  title="Import XML"
+                  aria-label="Import XML"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <FileUp size={16} />
+                  <span>Import</span>
+                </button>
+                <button
+                  type="button"
+                  title="Format"
+                  onClick={() => {
+                    try {
+                      setFetchXml(getFormattedXml(fetchXml));
+                      setQueryError("");
+                    } catch (error) {
+                      setQueryError(getErrorMessage(error));
+                    }
+                  }}
+                >
+                  <Sparkles size={17} />
+                  <span>Format</span>
+                </button>
+                <button
+                  type="button"
+                  title="Transform query"
+                  onClick={(event) => {
+                    event.currentTarget.focus();
+                    setTransformDialogTab("powerAutomate");
+                  }}
+                >
+                  <Wand2 size={16} />
+                  <span>Transform</span>
+                  <ChevronDown size={13} />
+                </button>
+                <button
+                  type="button"
+                  title="Reset query"
+                  aria-label="Reset query"
+                  onClick={() => {
+                    if (
+                      !window.confirm(
+                        "Replace the current query with the sample query and clear results?",
+                      )
+                    )
+                      return;
+                    setFetchXml(sampleFetchXml);
+                    setHasExecutedQuery(false);
+                    setQueryError("");
+                    setResultRows([]);
+                  }}
+                >
+                  <RotateCcw size={17} />
+                </button>
+                <button
+                  type="button"
+                  title="Export XML"
+                  aria-label="Export XML"
+                  onClick={() => download("query.fetch.xml", fetchXml)}
+                >
+                  <Download size={16} />
+                  <span>Export</span>
+                </button>
+                <button
+                  type="button"
+                  className="primary-action"
+                  title={
+                    !hasLiveSession
+                      ? "Connect to Dataverse to run this query"
+                      : "Run query"
+                  }
+                  disabled={
+                    !hasLiveSession ||
+                    isExecutingQuery ||
+                    builderWarningCount > 0 ||
+                    validationErrorCount > 0
+                  }
+                  onClick={executeQuery}
+                >
+                  {isExecutingQuery ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Play size={16} />
+                  )}
+                  <span>{isExecutingQuery ? "Running…" : "Run query"}</span>
+                </button>
+              </div>
+            </div>
             <div className="workspace">
+              {queryError ? (
+                <div className="workspace-alert" role="alert">
+                  <AlertCircle size={16} />
+                  {queryError}
+                </div>
+              ) : null}
+              {!hasLiveSession && activePane === "builder" ? (
+                <div className="connection-notice">
+                  <PlugZap size={17} />
+                  <p>
+                    <strong>You’re working locally.</strong> Connect an
+                    environment to explore metadata and run queries.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveModule("credentials")}
+                  >
+                    Set up connection <ArrowRight size={14} />
+                  </button>
+                </div>
+              ) : null}
               <div className="left-stack">
                 {activePane === "editor" ? (
                   <section
                     className="panel editor-panel"
                     aria-label="FetchXML editor"
                   >
+                    <div className="panel-heading">
+                      <h2>FetchXML</h2>
+                      <span className="subtle">XML editor</span>
+                    </div>
                     <XmlEditor value={fetchXml} onChange={setFetchXml} />
                   </section>
                 ) : null}
@@ -613,11 +747,26 @@ export function App() {
                     loadingAttributeEntity={loadingAttributeEntity}
                     selectedEntity={selectedEntity}
                     onEntitySelected={selectEntity}
+                    onLoadAttributes={(entityName) =>
+                      void loadEntityAttributes(entityName)
+                    }
+                    onConnect={() => setActiveModule("credentials")}
+                    onReload={(entityName) => void reloadMetadata(entityName)}
+                    canReload={
+                      hasLiveSession && connectionStatus !== "loadingMetadata"
+                    }
                   />
                 ) : null}
                 {activePane === "results" ? (
                   <ResultGrid
-                    canExecute={hasLiveSession && builderWarningCount === 0}
+                    canExecute={
+                      hasLiveSession &&
+                      builderWarningCount === 0 &&
+                      validationErrorCount === 0
+                    }
+                    hasExecuted={hasExecutedQuery}
+                    isConnected={hasLiveSession}
+                    onConnect={() => setActiveModule("credentials")}
                     hasMore={Boolean(resultNextLink)}
                     isExecuting={isExecutingQuery}
                     rows={resultRows}
@@ -685,6 +834,17 @@ function TransformDialog({
   onClose: () => void;
   onSelect: (tab: OutputTab) => void;
 }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [copyStatus, setCopyStatus] = useState("");
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previousFocus = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
   const selected = outputTabs.find((tab) => tab.id === selectedTab);
   const output = getOutput(fetchXml, selectedTab, entitySetName);
   const copyText =
@@ -695,94 +855,105 @@ function TransformDialog({
       : output.text;
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <dialog
-        className="transform-dialog"
-        aria-label="Transformation result"
-        open
-      >
-        <div className="panel-heading builder-heading">
-          <div>
-            <h2>{selected?.label ?? "Transformation"}</h2>
-            <span>Generated from the current FetchXML</span>
-          </div>
-          <div className="dialog-actions">
-            <button
-              className="icon-button"
-              type="button"
-              title="Copy"
-              onClick={() => navigator.clipboard.writeText(copyText)}
-            >
-              <Copy size={17} />
-            </button>
-            <button
-              className="icon-button"
-              type="button"
-              title="Close"
-              onClick={onClose}
-            >
-              <X size={17} />
-            </button>
-          </div>
+    <dialog
+      ref={dialogRef}
+      onCancel={onClose}
+      className="transform-dialog"
+      aria-label="Transformation result"
+    >
+      <div className="panel-heading builder-heading">
+        <div>
+          <h2>{selected?.label ?? "Transformation"}</h2>
+          <span>Generated from the current FetchXML</span>
         </div>
-        <div className="panel-toolbar">
-          <div
-            className="segmented"
-            role="tablist"
-            aria-label="Transformations"
+        <div className="dialog-actions">
+          <output className="copy-status">{copyStatus}</output>
+          <button
+            className="icon-button"
+            type="button"
+            title="Copy output"
+            aria-label="Copy output"
+            disabled={!copyText}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(copyText);
+                setCopyStatus("Copied to clipboard");
+              } catch {
+                setCopyStatus(
+                  "Could not copy. Select and copy the output manually.",
+                );
+              }
+            }}
           >
-            {outputTabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  className={tab.id === selectedTab ? "active" : ""}
-                  key={tab.id}
-                  type="button"
-                  title={tab.label}
-                  onClick={() => onSelect(tab.id)}
-                >
-                  <Icon size={16} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
+            <Copy size={17} />
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            title="Close"
+            onClick={onClose}
+          >
+            <X size={17} />
+          </button>
+        </div>
+      </div>
+      <div className="panel-toolbar">
+        <div className="segmented" aria-label="Transformations">
+          {outputTabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                className={tab.id === selectedTab ? "active" : ""}
+                key={tab.id}
+                type="button"
+                title={tab.label}
+                aria-pressed={tab.id === selectedTab}
+                onClick={() => {
+                  setCopyStatus("");
+                  onSelect(tab.id);
+                }}
+              >
+                <Icon size={16} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {output.kind === "parameters" ? (
+        <div className="parameter-layout">
+          <pre>{output.text}</pre>
+          <div className="manifest">
+            {output.parameters.map((parameter) => (
+              <div className="manifest-row" key={parameter.name}>
+                <FileJson2 size={15} />
+                <span>{parameter.name}</span>
+                <small>{parameter.inferredType}</small>
+              </div>
+            ))}
           </div>
         </div>
-        {output.kind === "parameters" ? (
-          <div className="parameter-layout">
-            <pre>{output.text}</pre>
-            <div className="manifest">
-              {output.parameters.map((parameter) => (
-                <div className="manifest-row" key={parameter.name}>
-                  <FileJson2 size={15} />
-                  <span>{parameter.name}</span>
-                  <small>{parameter.inferredType}</small>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : output.kind === "issues" ? (
-          <div className="issues">
-            {output.issues.length === 0 ? (
-              <div className="empty-state">No validation issues</div>
-            ) : (
-              output.issues.map((issue) => (
-                <div
-                  className={`issue ${issue.severity}`}
-                  key={`${issue.path}-${issue.message}`}
-                >
-                  <AlertCircle size={16} />
-                  <span>{issue.message}</span>
-                  <small>{issue.path}</small>
-                </div>
-              ))
-            )}
-          </div>
-        ) : (
-          <pre>{output.text}</pre>
-        )}
-      </dialog>
-    </div>
+      ) : output.kind === "issues" ? (
+        <div className="issues">
+          {output.issues.length === 0 ? (
+            <div className="empty-state">No validation issues</div>
+          ) : (
+            output.issues.map((issue) => (
+              <div
+                className={`issue ${issue.severity}`}
+                key={`${issue.path}-${issue.message}`}
+              >
+                <AlertCircle size={16} />
+                <span>{issue.message}</span>
+                <small>{issue.path}</small>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        <pre>{output.text}</pre>
+      )}
+    </dialog>
   );
 }
 
@@ -818,13 +989,13 @@ function ConnectionStrip({
     activeConnectionProfile?.name ||
     activeConnectionProfile?.orgUrl ||
     orgUrl ||
-    "Not connected";
-  const profileName = activeConnectionProfile?.name || "Unsaved connection";
+    "No environment connected";
+  const profileName = activeConnectionProfile?.name || "Local workspace";
 
   return (
     <section
       className={
-        status === "error"
+        error
           ? "connection-strip error"
           : isConnected
             ? "connection-strip ready"
@@ -859,7 +1030,7 @@ function ConnectionStrip({
       <div className="connection-strip-actions">
         <button type="button" onClick={onManageCredentials}>
           <KeyRound size={15} />
-          <span>Change</span>
+          <span>Connections</span>
         </button>
         {isConnected ? (
           <button type="button" onClick={onDisconnect}>
@@ -870,8 +1041,8 @@ function ConnectionStrip({
           <button
             className="primary-action"
             type="button"
-            disabled={isBusy || !hasConnectionConfig}
-            onClick={onConnect}
+            disabled={isBusy}
+            onClick={hasConnectionConfig ? onConnect : onManageCredentials}
           >
             <PlugZap size={15} />
             <span>{isBusy ? "Connecting" : "Connect"}</span>
@@ -887,7 +1058,7 @@ function statusLabel(status: ConnectionStatus) {
   if (status === "loadingMetadata") return "Loading metadata";
   if (status === "connected") return "Connected";
   if (status === "error") return "Connection error";
-  return "Local";
+  return "Local mode";
 }
 
 function formatTimestamp(value: string) {

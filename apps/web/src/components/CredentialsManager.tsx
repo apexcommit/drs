@@ -1,6 +1,7 @@
 import type { DataverseConnectionProfile } from "@drs/storage";
 import {
   CheckCircle2,
+  Database,
   KeyRound,
   Pencil,
   PlugZap,
@@ -9,7 +10,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 interface CredentialsManagerProps {
   connectionProfiles: DataverseConnectionProfile[];
@@ -43,7 +44,12 @@ export function CredentialsManager({
   onUse,
   onTest,
 }: CredentialsManagerProps) {
-  const [draft, setDraft] = useState<ConnectionProfileDraft>(emptyDraft);
+  const [draft, setDraft] = useState<ConnectionProfileDraft>(() => ({
+    ...emptyDraft,
+    id: createConnectionProfileId(),
+  }));
+  const [saveMessage, setSaveMessage] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const sortedConnectionProfiles = useMemo(
     () =>
       [...connectionProfiles].sort((left, right) =>
@@ -54,17 +60,23 @@ export function CredentialsManager({
   const selectedConnectionProfile = connectionProfiles.find(
     (profile) => profile.id === draft.id,
   );
-  const canSave = draft.name.trim() && draft.orgUrl.trim();
+  const canSave = Boolean(
+    draft.name.trim() && isValidOrganizationUrl(draft.orgUrl),
+  );
   const isTestingDraft = Boolean(draft.id && testingCredentialId === draft.id);
 
   function startNewConnectionProfile() {
+    setSaveMessage("");
     setDraft({
       ...emptyDraft,
       id: createConnectionProfileId(),
     });
+    nameInputRef.current?.focus();
+    nameInputRef.current?.scrollIntoView({ block: "center" });
   }
 
   function editConnectionProfile(profile: DataverseConnectionProfile) {
+    setSaveMessage("");
     setDraft({
       id: profile.id,
       name: profile.name,
@@ -95,14 +107,17 @@ export function CredentialsManager({
       profile.lastTestMessage = selectedConnectionProfile.lastTestMessage;
     }
     onSave(profile);
+    setDraft({ ...draft, id: profile.id });
+    setSaveMessage("Connection saved");
   }
 
   return (
     <section className="credentials-module" aria-label="Connections manager">
       <div className="module-heading">
         <div>
-          <h2>Connections Manager</h2>
-          <p>Saved Dataverse connection profiles for this browser.</p>
+          <div className="eyebrow">YOUR ENVIRONMENTS</div>
+          <h2>Connections</h2>
+          <p>Save your environments. Switch context with confidence.</p>
         </div>
         <button
           type="button"
@@ -149,6 +164,11 @@ export function CredentialsManager({
                       onClick={() => onUse(profile.id)}
                     >
                       <PlugZap size={15} />
+                      <span>
+                        {profile.id === activeConnectionProfileId
+                          ? "Selected"
+                          : "Use connection"}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -160,7 +180,14 @@ export function CredentialsManager({
                     <button
                       type="button"
                       title="Delete connection"
-                      onClick={() => onDelete(profile.id)}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Delete the saved connection “${profile.name}”?`,
+                          )
+                        )
+                          onDelete(profile.id);
+                      }}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -168,19 +195,42 @@ export function CredentialsManager({
                 </article>
               ))
             ) : (
-              <div className="empty-state">No connections saved yet.</div>
+              <div className="empty-state spacious">
+                <div className="empty-icon">
+                  <Database size={26} />
+                </div>
+                <h3>A home for your environments</h3>
+                <p>
+                  Add your first Dataverse connection using the form. Profiles
+                  are saved in this browser.
+                </p>
+              </div>
             )}
           </div>
         </section>
 
         <section className="panel credential-editor-panel">
           <div className="panel-heading compact">
-            <h2>{draft.id ? "Connection Details" : "New Connection"}</h2>
+            <h2>
+              {selectedConnectionProfile
+                ? "Connection details"
+                : "Add a connection"}
+            </h2>
           </div>
-          <div className="credential-form">
+          <form
+            className="credential-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveConnectionProfile();
+            }}
+            onChange={() => setSaveMessage("")}
+          >
             <label>
-              <span>Name</span>
+              <span>Connection name</span>
               <input
+                ref={nameInputRef}
+                required
+                autoComplete="off"
                 value={draft.name}
                 onChange={(event) =>
                   setDraft({ ...draft, name: event.target.value })
@@ -189,24 +239,36 @@ export function CredentialsManager({
               />
             </label>
             <label>
-              <span>Org URL</span>
+              <span>Organization URL</span>
               <input
+                type="url"
+                required
                 value={draft.orgUrl}
                 onChange={(event) =>
                   setDraft({ ...draft, orgUrl: event.target.value })
                 }
                 placeholder="https://org.crm.dynamics.com"
+                aria-describedby="organization-url-hint"
+                aria-invalid={Boolean(
+                  draft.orgUrl && !isValidOrganizationUrl(draft.orgUrl),
+                )}
               />
+              <small id="organization-url-hint">
+                Enter the full HTTPS URL of your Dataverse environment.
+              </small>
             </label>
             <label>
-              <span>App ID</span>
+              <span>
+                Application ID <small>Optional</small>
+              </span>
               <input
                 value={draft.clientId}
                 onChange={(event) =>
                   setDraft({ ...draft, clientId: event.target.value })
                 }
-                placeholder="Application/client ID"
+                placeholder="Use the default Dataverse application"
               />
+              <small>Leave blank to use the built-in public client ID.</small>
             </label>
             <label>
               <span>Tenant</span>
@@ -217,16 +279,19 @@ export function CredentialsManager({
                 }
                 placeholder="common"
               />
+              <small>
+                Use “common” or enter your organization’s tenant ID.
+              </small>
             </label>
+            <output className="copy-status">{saveMessage}</output>
             <div className="credential-editor-actions">
               <button
-                type="button"
+                type="submit"
                 className="primary-action"
                 disabled={!canSave}
-                onClick={saveConnectionProfile}
               >
                 <Save size={16} />
-                <span>Save</span>
+                <span>Save connection</span>
               </button>
               <button
                 type="button"
@@ -248,7 +313,7 @@ export function CredentialsManager({
                 <span>{isTestingDraft ? "Testing" : "Test"}</span>
               </button>
             </div>
-          </div>
+          </form>
         </section>
       </div>
     </section>
@@ -284,4 +349,13 @@ function createConnectionProfileId() {
     return globalThis.crypto.randomUUID();
   }
   return `connection-${Date.now()}`;
+}
+
+function isValidOrganizationUrl(value: string) {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
 }

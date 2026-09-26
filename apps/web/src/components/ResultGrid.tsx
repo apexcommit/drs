@@ -1,7 +1,19 @@
-import { Copy, Download } from "lucide-react";
+import {
+  ArrowRight,
+  Copy,
+  Download,
+  LoaderCircle,
+  Play,
+  Search,
+  Table2,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 
 interface ResultGridProps {
   canExecute: boolean;
+  hasExecuted: boolean;
+  isConnected: boolean;
+  onConnect: () => void;
   hasMore: boolean;
   isExecuting: boolean;
   rows: Record<string, unknown>[];
@@ -11,78 +23,193 @@ interface ResultGridProps {
 
 export function ResultGrid({
   canExecute,
+  hasExecuted,
+  isConnected,
+  onConnect,
   hasMore,
   isExecuting,
   rows,
   onExecute,
   onLoadMore,
 }: ResultGridProps) {
-  const columns = getResultColumns(rows);
+  const [query, setQuery] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
+  const columns = useMemo(() => getResultColumns(rows), [rows]);
+  const filteredRows = useMemo(
+    () => filterResultRows(rows, query),
+    [rows, query],
+  );
 
   return (
-    <section className="panel side-panel results-panel" aria-label="Results">
-      <div className="panel-heading">
-        <h2>Results</h2>
+    <section
+      className="panel results-panel"
+      aria-label="Results"
+      aria-busy={isExecuting}
+    >
+      <div className="panel-heading results-heading">
+        <div className="heading-with-count">
+          <h2>Query results</h2>
+          <span className="count-badge">
+            {rows.length.toLocaleString()} rows loaded
+          </span>
+        </div>
         <div className="button-row">
+          <output className="copy-status">{copyStatus}</output>
           <button
-            type="button"
-            title="Run"
-            disabled={!canExecute || isExecuting}
-            onClick={onExecute}
-          >
-            {isExecuting ? "Running" : "Run"}
-          </button>
-          {hasMore ? (
-            <button type="button" disabled={isExecuting} onClick={onLoadMore}>
-              {isExecuting ? "Loading" : "Load more"}
-            </button>
-          ) : null}
-          <button
-            className="icon-button"
             type="button"
             title="Copy JSON"
-            onClick={() =>
-              navigator.clipboard.writeText(JSON.stringify(rows, null, 2))
-            }
+            disabled={!filteredRows.length}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(
+                  JSON.stringify(filteredRows, null, 2),
+                );
+                setCopyStatus("Copied");
+              } catch {
+                setCopyStatus("Copy failed. Try exporting CSV.");
+              }
+            }}
           >
-            <Copy size={16} />
+            <Copy size={15} />
+            <span>Copy JSON</span>
           </button>
           <button
-            className="icon-button"
             type="button"
             title="Export CSV"
-            onClick={() => download("fetchxml-results.csv", toCsv(rows))}
+            disabled={!filteredRows.length}
+            onClick={() =>
+              download("fetchxml-results.csv", toCsv(filteredRows))
+            }
           >
-            <Download size={16} />
+            <Download size={15} />
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
-
       {rows.length === 0 ? (
-        <div className="empty-state">No rows</div>
+        <div className="empty-state spacious">
+          <div className="empty-icon">
+            {isExecuting ? (
+              <LoaderCircle className="spin" size={26} />
+            ) : (
+              <Table2 size={26} />
+            )}
+          </div>
+          <h3>
+            {isExecuting
+              ? "Running your query…"
+              : hasExecuted
+                ? "No matching records"
+                : "Your results start here"}
+          </h3>
+          <p>
+            {isExecuting
+              ? "Retrieving records from Dataverse."
+              : hasExecuted
+                ? "The query completed successfully. Adjust your filters and run it again."
+                : isConnected
+                  ? "Run your FetchXML to explore records, then copy or export the results."
+                  : "Connect an environment and run your query. Your records will appear here, ready to explore and export."}
+          </p>
+          {!isExecuting ? (
+            <button
+              className="primary-action"
+              type="button"
+              disabled={isConnected && !canExecute}
+              onClick={isConnected ? onExecute : onConnect}
+            >
+              {isConnected ? <Play size={15} /> : null}
+              {isConnected ? "Run query" : "Set up connection"}
+              <ArrowRight size={15} />
+            </button>
+          ) : null}
+        </div>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {columns.map((column) => (
-                  <th key={column}>{column}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <tr key={`row-${index + 1}`}>
+        <>
+          <div className="results-filter">
+            <div className="search-box">
+              <Search size={15} />
+              <input
+                aria-label="Search loaded results"
+                placeholder="Search loaded results…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+            <span className="subtle">
+              {filteredRows.length.toLocaleString()} of{" "}
+              {rows.length.toLocaleString()} loaded rows
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th className="row-number" scope="col">
+                    #
+                  </th>
                   {columns.map((column) => (
-                    <td key={column}>{String(row[column] ?? "")}</td>
+                    <th scope="col" key={column}>
+                      {column}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredRows.map((row, index) => (
+                  <tr key={`row-${index + 1}`}>
+                    <td className="row-number">{index + 1}</td>
+                    {columns.map((column) => (
+                      <td key={column}>{String(row[column] ?? "")}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredRows.length === 0 ? (
+              <div className="empty-state spacious">
+                <Search size={24} />
+                <h3>No matching results</h3>
+                <p>Try another search across the loaded records.</p>
+                <button type="button" onClick={() => setQuery("")}>
+                  Clear search
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className="results-footer">
+            <span>
+              {hasMore
+                ? "More records are available from Dataverse."
+                : "All returned records loaded."}
+            </span>
+            {hasMore ? (
+              <button type="button" disabled={isExecuting} onClick={onLoadMore}>
+                {isExecuting ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : null}
+                {isExecuting ? "Loading…" : "Load more records"}
+              </button>
+            ) : null}
+          </div>
+        </>
       )}
     </section>
+  );
+}
+
+export function filterResultRows(
+  rows: Record<string, unknown>[],
+  query: string,
+) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((row) =>
+    Object.values(row).some((value) =>
+      String(value ?? "")
+        .toLowerCase()
+        .includes(needle),
+    ),
   );
 }
 
