@@ -701,61 +701,15 @@ export function QueryBuilderPanel({
         .join(" ")}
       aria-label="Visual query builder"
     >
-      <section className="fetch-preview-panel panel" aria-label="FetchXML">
-        <div className="panel-heading builder-heading">
-          <div>
-            <h2>FetchXML</h2>
-            <span>Editable query</span>
-          </div>
-          <div className="builder-heading-actions">
-            <button
-              type="button"
-              title={isFetchCopied ? "Copied" : "Copy FetchXML"}
-              aria-label="Copy FetchXML"
-              onClick={copyFetchXml}
-            >
-              <Copy size={16} />
-            </button>
-            <button
-              className={showCompositor ? "active" : ""}
-              type="button"
-              title={showCompositor ? "Hide compositor" : "Show compositor"}
-              aria-label={
-                showCompositor ? "Hide compositor" : "Show compositor"
-              }
-              aria-pressed={showCompositor}
-              onClick={() => setShowCompositor(!showCompositor)}
-            >
-              <Layers3 size={16} />
-            </button>
-            <button
-              className={showInspector ? "active" : ""}
-              type="button"
-              title={showInspector ? "Hide inspector" : "Show inspector"}
-              aria-label={showInspector ? "Hide inspector" : "Show inspector"}
-              aria-pressed={showInspector}
-              onClick={() => setShowInspector(!showInspector)}
-            >
-              <Settings2 size={16} />
-            </button>
-          </div>
-        </div>
-        <XmlEditor
-          value={fetchXml}
-          onChange={onChange}
-          onCursorOffsetChange={setEditorCursorOffset}
-        />
-      </section>
-
       {showCompositor ? (
         <div className="composition-panel panel">
           <div className="panel-heading builder-heading">
             <div>
-              <h2>Compositor</h2>
-              <span>Graphic map of what the FetchXML will do</span>
+              <h2>Query structure</h2>
+              <span>Select a node to edit its properties</span>
             </div>
           </div>
-          <div className="query-tree" role="tree">
+          <div className="query-tree" aria-label="Query structure">
             <TreeButton
               active={selectedNode.type === "fetch"}
               icon={<Settings2 size={17} />}
@@ -791,6 +745,52 @@ export function QueryBuilderPanel({
           </div>
         </div>
       ) : null}
+
+      <section className="fetch-preview-panel panel" aria-label="FetchXML">
+        <div className="panel-heading builder-heading">
+          <div>
+            <h2>FetchXML</h2>
+            <span>Live XML · changes stay in sync</span>
+          </div>
+          <div className="builder-heading-actions">
+            <button
+              type="button"
+              title={isFetchCopied ? "Copied" : "Copy FetchXML"}
+              aria-label="Copy FetchXML"
+              onClick={copyFetchXml}
+            >
+              {isFetchCopied ? <BadgeCheck size={16} /> : <Copy size={16} />}
+            </button>
+            <button
+              className={showCompositor ? "active" : ""}
+              type="button"
+              title={showCompositor ? "Hide compositor" : "Show compositor"}
+              aria-label={
+                showCompositor ? "Hide compositor" : "Show compositor"
+              }
+              aria-pressed={showCompositor}
+              onClick={() => setShowCompositor(!showCompositor)}
+            >
+              <Layers3 size={16} />
+            </button>
+            <button
+              className={showInspector ? "active" : ""}
+              type="button"
+              title={showInspector ? "Hide inspector" : "Show inspector"}
+              aria-label={showInspector ? "Hide inspector" : "Show inspector"}
+              aria-pressed={showInspector}
+              onClick={() => setShowInspector(!showInspector)}
+            >
+              <Settings2 size={16} />
+            </button>
+          </div>
+        </div>
+        <XmlEditor
+          value={fetchXml}
+          onChange={onChange}
+          onCursorOffsetChange={setEditorCursorOffset}
+        />
+      </section>
 
       {showInspector ? (
         <aside
@@ -1344,6 +1344,8 @@ function TreeButton({
     <div className="tree-node-frame">
       <button
         className={`tree-node ${tone}${active ? " active" : ""}${onDelete ? " has-delete" : ""}`}
+        title={`${label}: ${meta}`}
+        aria-pressed={active}
         type="button"
         onClick={onClick}
       >
@@ -1815,7 +1817,14 @@ function AttributesInspector({
 }) {
   return (
     <div className="inspector-stack">
-      <button className="primary-action" type="button" onClick={onOpenPicker}>
+      <button
+        className="primary-action"
+        type="button"
+        onClick={(event) => {
+          event.currentTarget.focus();
+          onOpenPicker();
+        }}
+      >
         <ListChecks size={16} />
         <span>Select attributes</span>
       </button>
@@ -2184,61 +2193,73 @@ function AttributePickerDialog({
   onQueryChange: (value: string) => void;
   onToggle: (attributeName: string) => void;
 }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previousFocus = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
   const selectedNames = new Set(
     selectedAttributes.map((attribute) => attribute.name),
   );
   const visibleAttributes = filterAttributes(attributes, query).slice(0, 80);
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <dialog className="attribute-dialog" aria-label="Select attributes" open>
-        <div className="panel-heading builder-heading">
-          <div>
-            <h2>Select attributes</h2>
-            <span>{selectedAttributes.length} selected</span>
-          </div>
-          <button
-            className="icon-button"
-            type="button"
-            title="Close"
-            onClick={onClose}
-          >
-            <X size={17} />
-          </button>
+    <dialog
+      ref={dialogRef}
+      onCancel={onClose}
+      className="attribute-dialog"
+      aria-label="Select attributes"
+    >
+      <div className="panel-heading builder-heading">
+        <div>
+          <h2>Select attributes</h2>
+          <span>{selectedAttributes.length} selected</span>
         </div>
-        <div className="attribute-dialog-search">
-          <div className="search-box">
-            <Search size={15} />
+        <button
+          className="icon-button"
+          type="button"
+          title="Close"
+          onClick={onClose}
+        >
+          <X size={17} />
+        </button>
+      </div>
+      <div className="attribute-dialog-search">
+        <div className="search-box">
+          <Search size={15} />
+          <input
+            value={query}
+            aria-label="Search attributes"
+            placeholder="Search attributes"
+            onChange={(event) => onQueryChange(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="attribute-picker-list">
+        {visibleAttributes.map((attribute) => (
+          <label className="attribute-picker-row" key={attribute.logicalName}>
             <input
-              value={query}
-              placeholder="Search attributes"
-              onChange={(event) => onQueryChange(event.target.value)}
+              type="checkbox"
+              checked={selectedNames.has(attribute.logicalName)}
+              onChange={() => onToggle(attribute.logicalName)}
             />
-          </div>
-        </div>
-        <div className="attribute-picker-list">
-          {visibleAttributes.map((attribute) => (
-            <label className="attribute-picker-row" key={attribute.logicalName}>
-              <input
-                type="checkbox"
-                checked={selectedNames.has(attribute.logicalName)}
-                onChange={() => onToggle(attribute.logicalName)}
-              />
-              <span>
-                <strong>
-                  {attribute.displayName || attribute.logicalName}
-                </strong>
-                <small>{attribute.logicalName}</small>
-              </span>
-              <em>{attribute.type}</em>
-            </label>
-          ))}
-          {visibleAttributes.length === 0 ? (
-            <p className="empty-state compact">No matching attributes.</p>
-          ) : null}
-        </div>
-      </dialog>
-    </div>
+            <span>
+              <strong>{attribute.displayName || attribute.logicalName}</strong>
+              <small>{attribute.logicalName}</small>
+            </span>
+            <em>{attribute.type}</em>
+          </label>
+        ))}
+        {visibleAttributes.length === 0 ? (
+          <p className="empty-state compact">No matching attributes.</p>
+        ) : null}
+      </div>
+    </dialog>
   );
 }
 
